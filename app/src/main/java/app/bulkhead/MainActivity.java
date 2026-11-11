@@ -17,6 +17,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -32,18 +33,25 @@ public class MainActivity extends Activity {
             + "• Pages are rendered in Android's sandboxed WebView renderer.\n"
             + "• Links never cross by themselves. You pick the compartment, and no cookie or "
             + "referrer travels with the link.\n"
-            + "• A disposable compartment is erased from storage when you close it.\n\n"
+            + "• A disposable compartment is erased from storage when you close it.\n"
+            + "• The ad blocker refuses connections to known ad and tracker servers in every "
+            + "compartment. The switch on this screen turns it on or off everywhere, including "
+            + "compartments that are already running. A single compartment can opt out in its "
+            + "settings if a site breaks.\n\n"
             + "What it does not do\n\n"
             + "• This is not a virtual machine. All compartments belong to one app, so the "
             + "boundary is Android's process and WebView sandbox, not a hypervisor. An exploit "
             + "that escapes the WebView sandbox could reach other compartments' files.\n"
             + "• Every compartment uses the same network connection and IP address. Sites "
             + "can still correlate you by IP or device fingerprint.\n"
+            + "• The ad blocker works by server name. Ads served from the same server as "
+            + "the page itself, such as YouTube's video ads, get through.\n"
             + "• Downloads are saved to the shared Downloads folder.";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresher = this::refresh;
     private LinearLayout list;
+    private TextView adNote;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -70,6 +78,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Close", null)
                 .show());
         head.addView(how);
+        head.addView(adblockRow());
         root.addView(head);
 
         ScrollView scroll = new ScrollView(this);
@@ -95,6 +104,35 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    /** The master ad-blocker switch. It applies to every compartment, running or not. */
+    private View adblockRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(Ui.round(Ui.SURFACE, Ui.dp(this, 14)));
+        row.setPadding(Ui.dp(this, 16), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(Ui.text(this, "Ad blocker", 16, Ui.TEXT, true));
+        adNote = Ui.text(this, "", 12.5f, Ui.MUTED, false);
+        texts.addView(adNote);
+        row.addView(texts, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+
+        Switch sw = new Switch(this);
+        sw.setContentDescription("Ad blocker");
+        sw.setChecked(Store.adblock(this));
+        sw.setOnCheckedChangeListener((button, on) -> {
+            Store.setAdblock(this, on);
+            refresh();
+        });
+        row.addView(sw);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP);
+        lp.topMargin = Ui.dp(this, 14);
+        row.setLayoutParams(lp);
+        return row;
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -118,12 +156,14 @@ public class MainActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
         ArrayList<Compartment> all = Store.load(this);
         HashMap<String, Integer> states = Slots.states(this);
+        final boolean adblock = Store.adblock(this);
+        adNote.setText(adblock ? "On in every compartment" : "Off in every compartment");
         list.removeAllViews();
         for (int pass = 0; pass < 2; pass++) {
             for (Compartment cp : all) {
                 if (cp.disposable != (pass == 1)) continue;
                 Integer st = states.get(cp.id);
-                list.addView(row(cp, st == null ? Slots.IDLE : st));
+                list.addView(row(cp, st == null ? Slots.IDLE : st, adblock));
             }
         }
         if (all.isEmpty()) {
@@ -134,7 +174,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View row(final Compartment cp, final int st) {
+    private View row(final Compartment cp, final int st, boolean adblock) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackground(Ui.pressable(Ui.round(Ui.SURFACE, Ui.dp(this, 14))));
@@ -148,7 +188,7 @@ public class MainActivity extends Activity {
         texts.setOrientation(LinearLayout.VERTICAL);
         texts.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 14));
         texts.addView(Ui.text(this, cp.name, 17, Ui.TEXT, true));
-        TextView summary = Ui.text(this, cp.summary(), 12.5f, Ui.MUTED, false);
+        TextView summary = Ui.text(this, cp.summary(adblock), 12.5f, Ui.MUTED, false);
         summary.setPadding(0, Ui.dp(this, 3), 0, 0);
         texts.addView(summary);
         row.addView(texts, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
@@ -276,7 +316,7 @@ public class MainActivity extends Activity {
         final CheckBox js = check(box, "JavaScript", cp.js);
         final CheckBox block3p = check(box, "Block third-party cookies", cp.block3p);
         final CheckBox https = check(box, "HTTPS only (ask before loading unencrypted pages)", cp.httpsOnly);
-        final CheckBox trackers = check(box, "Block known trackers and ad servers", cp.blockTrackers);
+        final CheckBox trackers = check(box, "Ad blocker (uncheck if sites break here)", cp.blockTrackers);
         final CheckBox desktop = check(box, "Request desktop sites", cp.desktop);
 
         ScrollView scroll = new ScrollView(this);

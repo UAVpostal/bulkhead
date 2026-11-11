@@ -3,6 +3,7 @@ package app.bulkhead;
 import android.content.Context;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -122,6 +123,28 @@ final class Store {
             list.add(d);
             save(c, list);
             return d;
+        }
+    }
+
+    private static File settingsFile(Context c) {
+        return new File(c.getFilesDir(), "settings.json");
+    }
+
+    /** The master ad-blocker switch, shared by every compartment. On unless turned off. */
+    static boolean adblock(Context c) {
+        try {
+            File f = settingsFile(c);
+            return !f.exists() || new JSONObject(read(f)).optBoolean("adblock", true);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /** Main process only. */
+    static void setAdblock(Context c, boolean on) {
+        try {
+            writeAtomic(settingsFile(c), new JSONObject().put("adblock", on).toString());
+        } catch (Exception ignored) {
         }
     }
 

@@ -57,13 +57,14 @@ final class Compartment {
         return COLORS[Math.floorMod(color, COLORS.length)];
     }
 
-    String summary() {
+    /** adblock is the master switch; a compartment can still opt out with blockTrackers. */
+    String summary(boolean adblock) {
         StringBuilder sb = new StringBuilder();
         if (disposable) sb.append("Disposable · ");
         sb.append(js ? "JavaScript on" : "JavaScript off");
         if (block3p) sb.append(" · no 3rd-party cookies");
         if (httpsOnly) sb.append(" · HTTPS only");
-        if (blockTrackers) sb.append(" · trackers blocked");
+        if (adblock && blockTrackers) sb.append(" · ads blocked");
         if (desktop) sb.append(" · desktop site");
         return sb.toString();
     }

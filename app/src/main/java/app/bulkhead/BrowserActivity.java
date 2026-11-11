@@ -80,7 +80,20 @@ public class BrowserActivity extends Activity {
     /** Counts activity instances, so a delayed kill can tell if the process was reused. */
     private static int generation;
 
+    /** Hides the empty boxes that blocked ads leave behind. Runs only where JavaScript is on. */
+    private static final String HIDE_AD_SLOTS = "(function(){try{"
+            + "if(document.getElementById('bulkhead-hide'))return;"
+            + "var s=document.createElement('style');s.id='bulkhead-hide';"
+            + "s.textContent='ins.adsbygoogle,[id^=\"google_ads_\"],[id^=\"div-gpt-ad\"],"
+            + "iframe[id^=\"aswift_\"],iframe[src*=\"doubleclick.net\"],"
+            + "iframe[src*=\"googlesyndication.com\"],[id^=\"taboola-\"],.OUTBRAIN,.ob-widget,"
+            + "amp-ad{display:none!important}';"
+            + "(document.head||document.documentElement).appendChild(s);"
+            + "}catch(e){}})()";
+
     private volatile Compartment cp;
+    /** The master ad-blocker switch, re-read whenever the compartment comes to the front. */
+    private volatile boolean adblock = true;
     private int slot = -1;
     private boolean closing;
     private boolean asking;
@@ -126,6 +139,8 @@ public class BrowserActivity extends Activity {
             return;
         }
         cp = found;
+        adblock = Store.adblock(this);
+        Blocklist.loadAsync(getApplicationContext());
         webViewUa = WebSettings.getDefaultUserAgent(this);
         buildUi();
 
@@ -254,6 +269,7 @@ public class BrowserActivity extends Activity {
             return;
         }
         cp = fresh; // settings may have been edited in the launcher
+        adblock = Store.adblock(this);
         applyIdentity();
         for (WebView w : tabs) applySettings(w);
     }
@@ -602,8 +618,8 @@ public class BrowserActivity extends Activity {
         m.add(0, 4, 0, "New tab");
         m.add(0, 5, 0, "Open this page in…");
         m.add(0, 6, 0, "Copy address");
-        if (cp.blockTrackers) {
-            m.add(0, 0, 0, "Trackers blocked: " + trackersBlocked.get()).setEnabled(false);
+        if (adblock && cp.blockTrackers) {
+            m.add(0, 0, 0, "Ads and trackers blocked: " + trackersBlocked.get()).setEnabled(false);
         }
         m.add(0, 7, 0, "Switch compartment");
         m.add(0, 8, 0, cp.disposable ? "Close and destroy" : "Close compartment");
@@ -859,7 +875,7 @@ public class BrowserActivity extends Activity {
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             // Called on a background thread.
             Compartment c = cp;
-            if (c != null && c.blockTrackers && !request.isForMainFrame()
+            if (c != null && adblock && c.blockTrackers && !request.isForMainFrame()
                     && Blocklist.blocked(request.getUrl().getHost())) {
                 trackersBlocked.incrementAndGet();
                 return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
@@ -877,6 +893,9 @@ public class BrowserActivity extends Activity {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            if (adblock && cp.blockTrackers && url != null && url.startsWith("http")) {
+                view.evaluateJavascript(HIDE_AD_SLOTS, null);
+            }
             if (view == currentTab()) {
                 showProgress(100);
                 syncBar();

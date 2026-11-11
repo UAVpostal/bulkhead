@@ -1,12 +1,22 @@
 package app.bulkhead;
 
+import android.content.Context;
+
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
 
 /**
- * A short built-in list of well-known advertising and tracking hosts.
- * It is a baseline, not a full content blocker. A listed domain also blocks its subdomains.
+ * The ad and tracker blocker's host lists. A listed domain also blocks its subdomains.
+ *
+ * There are two: a short built-in list that is always present, and a large one
+ * (assets/blocklist.bin, made by tools/make_blocklist.py at build time) that is
+ * loaded in the background when a compartment starts. If the large list is
+ * missing from a build, the built-in one is used alone.
  */
 final class Blocklist {
     private static final HashSet<String> HOSTS = new HashSet<>(Arrays.asList(
@@ -46,16 +56,67 @@ final class Blocklist {
             // Share widgets that track
             "addthis.com", "sharethis.com"));
 
+    /** Sorted hashes of the large list, or null until (or unless) it has loaded. */
+    private static volatile long[] big;
+    private static boolean started;
+
     private Blocklist() {}
+
+    /** Loads the large list once per process, off the main thread. */
+    static synchronized void loadAsync(final Context app) {
+        if (started) return;
+        started = true;
+        new Thread(() -> {
+            try (InputStream in = app.getAssets().open("blocklist.bin")) {
+                big = read(in);
+            } catch (IOException | RuntimeException ignored) {
+                // No large list in this build: the built-in list still applies.
+            }
+        }).start();
+    }
+
+    static long[] read(InputStream in) throws IOException {
+        DataInputStream d = new DataInputStream(new BufferedInputStream(in, 1 << 16));
+        if (d.readInt() != 0x424C4B31) throw new IOException("not a block list"); // "BLK1"
+        int n = d.readInt();
+        if (n < 0 || n > 2000000) throw new IOException("bad size");
+        long[] a = new long[n];
+        for (int i = 0; i < n; i++) a[i] = d.readLong();
+        return a;
+    }
+
+    static void use(long[] hashes) {
+        big = hashes;
+    }
+
+    /** How many hosts the blocker knows. */
+    static int size() {
+        long[] b = big;
+        return HOSTS.size() + (b == null ? 0 : b.length);
+    }
+
+    /** 64-bit FNV-1a of the host from the given position. Must match tools/make_blocklist.py. */
+    private static long hash(String s, int from) {
+        long h = 0xCBF29CE484222325L;
+        for (int i = from; i < s.length(); i++) {
+            h ^= s.charAt(i) & 0xFF;
+            h *= 0x100000001B3L;
+        }
+        return h;
+    }
 
     static boolean blocked(String host) {
         if (host == null) return false;
         String h = host.toLowerCase(Locale.ROOT);
+        if (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        long[] b = big;
+        int from = 0;
         while (true) {
-            if (HOSTS.contains(h)) return true;
-            int dot = h.indexOf('.');
+            if (HOSTS.contains(from == 0 ? h : h.substring(from))) return true;
+            if (b != null && Arrays.binarySearch(b, hash(h, from)) >= 0) return true;
+            int dot = h.indexOf('.', from);
             if (dot < 0 || h.indexOf('.', dot + 1) < 0) return false;
-            h = h.substring(dot + 1);
+            from = dot + 1;
         }
     }
 }

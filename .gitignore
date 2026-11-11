@@ -3,3 +3,6 @@ build/
 local.properties
 .idea/
 *.iml
+app/src/main/assets/blocklist.bin
+app/src/main/assets/blocklist-license.txt
+__pycache__/

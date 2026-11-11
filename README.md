@@ -35,9 +35,23 @@ What is separated per compartment:
 - **Recents.** Each open compartment is its own entry in the Recents screen.
 
 Per-compartment settings: JavaScript, third-party cookies, HTTPS-only (asks
-before loading an unencrypted page), a built-in tracker and ad-server blocklist,
-and desktop mode. Pages never get file access, location, camera or microphone,
+before loading an unencrypted page), an ad-blocker opt-out, and desktop mode. Pages never get file access, location, camera or microphone,
 and certificate errors are never bypassed.
+
+### Ad blocker
+
+One switch on the launcher turns ad blocking on or off in every compartment,
+including ones that are already running (they pick the change up when you
+return to them). It refuses connections to known ad and tracker servers and
+hides the empty boxes they leave behind. A single compartment can opt out in
+its settings if a site breaks there.
+
+The host list is Steven Black's unified hosts list
+(https://github.com/StevenBlack/hosts, MIT license), downloaded and packed by
+the GitHub build each time it runs, so every new build has a current list. A
+build made without it (for example in Android Studio, unless you run
+`tools/make_blocklist.py` yourself) falls back to a built-in list of about 120
+hosts.
 
 ### What it does not do
 
@@ -52,8 +66,9 @@ Be clear-eyed about this before relying on it:
 - **One network identity.** Every compartment uses the same connection and IP
   address, and the same device fingerprint. Sites can still correlate you that way.
 - **Downloads are shared.** They go to the normal Downloads folder.
-- **The tracker list is a baseline** of about 120 well-known hosts, not a full
-  content blocker.
+- **The ad blocker works by server name.** Ads served from the same server as
+  the page itself, such as YouTube's video ads, get through, and some sites
+  detect blocking and complain.
 - **Swiping a disposable away from Recents** (instead of using Close and
   destroy) leaves its files on the device until Bulkhead next runs, when they
   are erased.
@@ -105,11 +120,10 @@ nothing: before publishing the app anywhere, generate your own and update
 
 ## Status
 
-This first version was written and checked without an Android SDK at hand. The
-Java was compiled against hand-written stand-ins for the Android classes, and
-the slot-allocation and wipe logic was run through scenario tests, but the app
-has **not yet been built with the real Android toolchain or run on a device**.
-Expect that the first real build may need small fixes.
+The app builds with the real Android toolchain on GitHub, and the
+slot-allocation, wipe and ad-block matching logic is covered by scenario tests
+run against stand-ins for the Android classes. It has had little testing on
+real devices, so expect rough edges.
 
 ## Layout
 
@@ -125,5 +139,6 @@ Expect that the first real build may need small fixes.
         RouterActivity.java   links from other apps: always asks where to open
         OpenActivity.java     internal hand-off between compartments
         CleanupReceiver.java  erases a compartment after its process has died
-        Blocklist.java        tracker and ad hosts
+        Blocklist.java        ad blocker host lists
+    tools/make_blocklist.py              packs a hosts file into the app's list format
         Ui.java               view and URL helpers

@@ -42,6 +42,7 @@ public class RouterActivity extends Activity {
 
     private void choose(final String url) {
         final ArrayList<Compartment> all = Store.load(this);
+        final boolean adblock = Store.adblock(this);
 
         LinearLayout title = new LinearLayout(this);
         title.setOrientation(LinearLayout.VERTICAL);
@@ -75,7 +76,7 @@ public class RouterActivity extends Activity {
                             "New disposable", "Starts empty, erased when closed");
                 }
                 Compartment c = all.get(position - 1);
-                return Ui.pickRow(RouterActivity.this, c.argb(), c.name, c.summary());
+                return Ui.pickRow(RouterActivity.this, c.argb(), c.name, c.summary(adblock));
             }
         };
 
