@@ -35,13 +35,8 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk Bulkhead.apk
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Bulkhead-apk
-          path: Bulkhead.apk
-
-      # Also publish it as the "latest" release, which gives a direct APK
-      # download link that works from a phone browser.
+      # Publish it as the "latest" release, which gives a direct APK download
+      # link that works from a phone browser.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
