@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- usesCleartextTraffic is on so a compartment can load an http:// page after the
+         user explicitly allows it; the HTTPS-only setting is enforced in BrowserActivity. -->
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/App"
+        android:usesCleartextTraffic="true">
+
+        <!-- Main process: the launcher. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Main process: links arriving from other apps. Always asks which compartment. -->
+        <activity
+            android:name=".RouterActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@style/Overlay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Main process: internal hand-off between compartments. Not reachable by other apps. -->
+        <activity
+            android:name=".OpenActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Overlay" />
+
+        <receiver
+            android:name=".CleanupReceiver"
+            android:exported="false" />
+
+        <!-- Eight browser slots. Each is the same code in a different OS process with its
+             own task, so every open compartment is a separate entry in Recents. -->
+        <activity
+            android:name=".Slot$S0"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c0"
+            android:taskAffinity="app.bulkhead.c0"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S1"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c1"
+            android:taskAffinity="app.bulkhead.c1"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S2"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c2"
+            android:taskAffinity="app.bulkhead.c2"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S3"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c3"
+            android:taskAffinity="app.bulkhead.c3"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S4"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c4"
+            android:taskAffinity="app.bulkhead.c4"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S5"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c5"
+            android:taskAffinity="app.bulkhead.c5"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S6"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c6"
+            android:taskAffinity="app.bulkhead.c6"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity
+            android:name=".Slot$S7"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":c7"
+            android:taskAffinity="app.bulkhead.c7"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+    </application>
+</manifest>

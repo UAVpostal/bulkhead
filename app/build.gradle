@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'app.bulkhead'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'app.bulkhead'
+        minSdk 28        // Android 9: first version with a per-process WebView data directory
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // A fixed key kept in the project, so every build can be installed over the last
+    // one without losing your compartments. Replace it before publishing the app anywhere.
+    signingConfigs {
+        bundled {
+            storeFile rootProject.file('keystore/bulkhead.keystore')
+            storeType 'pkcs12'
+            storePassword 'bulkhead'
+            keyAlias 'bulkhead'
+            keyPassword 'bulkhead'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.bundled
+        }
+        debug {
+            signingConfig signingConfigs.bundled
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
