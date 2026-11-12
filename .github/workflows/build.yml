@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# Only the newest build matters: a new push cancels any build still waiting.
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,10 +41,15 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk Bulkhead.apk
 
       # Publish it as the "latest" release, which gives a direct APK download
-      # link that works from a phone browser.
+      # link that works from a phone browser. The release is kept and its APK
+      # replaced, so the link never goes dead between builds.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest Bulkhead.apk --title "Latest build" --notes "Built from ${GITHUB_SHA}" --target "${GITHUB_SHA}"
+          if gh release view latest > /dev/null 2>&1; then
+            gh release upload latest Bulkhead.apk --clobber
+            gh release edit latest --notes "Built from ${GITHUB_SHA}"
+          else
+            gh release create latest Bulkhead.apk --title "Latest build" --notes "Built from ${GITHUB_SHA}"
+          fi
