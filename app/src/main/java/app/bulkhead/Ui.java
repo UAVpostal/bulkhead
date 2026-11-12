@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,6 +27,7 @@ final class Ui {
     static final int BG = 0xFF0D1117;
     static final int SURFACE = 0xFF161B22;
     static final int RAISED = 0xFF21262D;
+    static final int CARD = 0xFF2D333B;
     static final int LINE = 0xFF30363D;
     static final int TEXT = 0xFFE6EDF3;
     static final int MUTED = 0xFF8B949E;
@@ -154,6 +156,23 @@ final class Ui {
                 && s.matches("^[^/?#]*[A-Za-z0-9]\\.[A-Za-z0-9][^\\s]*$");
         if (hostLike || s.matches("(?i)^localhost(:\\d+)?(/\\S*)?$")) return "https://" + s;
         return "https://duckduckgo.com/?q=" + Uri.encode(s);
+    }
+
+    /** What a tab is called in the tab grid. */
+    static String tabLabel(String url, String title) {
+        if (url == null || url.startsWith("about:")) return "New tab";
+        if (title == null || title.trim().isEmpty() || title.equals(url) || title.startsWith("about:")) {
+            return host(url);
+        }
+        return title.trim();
+    }
+
+    /** Whether a tab matches what was typed into the tab search box. */
+    static boolean matches(String query, String label, String url) {
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (q.isEmpty()) return true;
+        return (label != null && label.toLowerCase(Locale.ROOT).contains(q))
+                || (url != null && !url.startsWith("about:") && url.toLowerCase(Locale.ROOT).contains(q));
     }
 
     private static final Pattern URL_IN_TEXT = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);

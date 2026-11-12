@@ -82,6 +82,11 @@ Private Space, which gives real per-user kernel isolation.
   return to the list and switch.
 - **New disposable** opens an empty compartment that is erased when you choose
   **Close and destroy** from its menu.
+- Tap the tab count in the toolbar for the tab grid: a card per tab with the
+  site icon, title, a picture of the page and a close button. The tab you are
+  on is outlined, and the search box filters by title or address. The pictures
+  are kept in memory only and are never written to storage; a tab restored
+  from your last session shows its site name until you open it.
 - Long-press a link for: open in new tab, open in new disposable, open in
   another compartment, copy.
 - The menu's **Open this page in…** moves the current page somewhere else.
@@ -132,6 +137,7 @@ real devices, so expect rough edges.
         App.java              per-process startup
         MainActivity.java     launcher: list, add, edit, stop, wipe, delete
         BrowserActivity.java  the browser that runs inside each compartment
+        TabView.java          one tab: the page plus its icon and thumbnail
         Slot.java             the eight per-process subclasses
         Slots.java            slot assignment, teardown, cleanup
         Store.java            compartment list and data wiping

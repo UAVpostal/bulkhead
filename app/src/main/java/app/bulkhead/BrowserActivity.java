@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -20,8 +21,10 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Menu;
@@ -45,8 +48,10 @@ import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -107,7 +112,14 @@ public class BrowserActivity extends Activity {
     private TextView tabsButton;
     private View progress;
 
-    private final ArrayList<WebView> tabs = new ArrayList<>();
+    private final ArrayList<TabView> tabs = new ArrayList<>();
+
+    /** The tab grid, while it is open. */
+    private FrameLayout tray;
+    private LinearLayout trayGrid;
+    private TextView trayCount;
+    private String trayQuery = "";
+    private int trayWidth;
     private int current = -1;
 
     private ValueCallback<Uri[]> fileCallback;
@@ -145,9 +157,11 @@ public class BrowserActivity extends Activity {
         buildUi();
 
         ArrayList<String> urls = null;
+        ArrayList<String> titles = null;
         int index = 0;
         if (state != null) {
             urls = state.getStringArrayList("tabs");
+            titles = state.getStringArrayList("titles");
             index = state.getInt("current", 0);
         } else if (!found.disposable) {
             try {
@@ -155,13 +169,21 @@ public class BrowserActivity extends Activity {
                 JSONArray a = o.getJSONArray("tabs");
                 urls = new ArrayList<>();
                 for (int i = 0; i < a.length(); i++) urls.add(a.getString(i));
+                JSONArray t = o.optJSONArray("titles");
+                if (t != null) {
+                    titles = new ArrayList<>();
+                    for (int i = 0; i < t.length(); i++) titles.add(t.optString(i, ""));
+                }
                 index = o.optInt("current", 0);
             } catch (Exception ignored) {
                 urls = null; // no saved session
             }
         }
         if (urls != null) {
-            for (String u : urls) addTab(u, false);
+            for (int i = 0; i < urls.size(); i++) {
+                TabView t = addTab(urls.get(i), false);
+                if (titles != null && i < titles.size() && !titles.get(i).isEmpty()) t.savedTitle = titles.get(i);
+            }
         }
         String url = state == null ? getIntent().getStringExtra(EXTRA_URL) : null;
         if (url != null) {
@@ -249,7 +271,10 @@ public class BrowserActivity extends Activity {
             return;
         }
         String url = intent.getStringExtra(EXTRA_URL);
-        if (url != null) addTab(url, true);
+        if (url != null) {
+            hideTray();
+            addTab(url, true);
+        }
     }
 
     @Override
@@ -289,6 +314,7 @@ public class BrowserActivity extends Activity {
         super.onSaveInstanceState(out);
         if (cp == null || closing) return;
         out.putStringArrayList("tabs", tabUrls());
+        out.putStringArrayList("titles", tabTitles());
         out.putInt("current", current);
     }
 
@@ -309,6 +335,10 @@ public class BrowserActivity extends Activity {
     public void onBackPressed() {
         if (customView != null) {
             hideCustomView();
+            return;
+        }
+        if (tray != null) {
+            hideTray();
             return;
         }
         WebView w = currentTab();
@@ -384,7 +414,7 @@ public class BrowserActivity extends Activity {
         tabsButton.setGravity(Gravity.CENTER);
         tabsButton.setBackground(Ui.outline(this, 0, Ui.TEXT, Ui.dp(this, 7)));
         tabsButton.setContentDescription("Tabs");
-        tabsButton.setOnClickListener(v -> showTabs());
+        tabsButton.setOnClickListener(v -> showTray());
         bar.addView(tabsButton, new LinearLayout.LayoutParams(Ui.dp(this, 30), Ui.dp(this, 30)));
 
         ImageButton menu = new ImageButton(this);
@@ -439,11 +469,10 @@ public class BrowserActivity extends Activity {
     }
 
     private void syncBar() {
-        WebView w = currentTab();
+        TabView w = currentTab();
         tabsButton.setText(String.valueOf(tabs.size()));
         if (w == null || urlBar.hasFocus()) return;
-        Object pending = w.getTag();
-        String url = pending != null ? (String) pending : w.getUrl();
+        String url = w.address();
         urlBar.setText(url == null || url.startsWith("about:") ? "" : url);
     }
 
@@ -474,14 +503,14 @@ public class BrowserActivity extends Activity {
 
     // ----------------------------------------------------------------------- tabs
 
-    private WebView currentTab() {
+    private TabView currentTab() {
         return current >= 0 && current < tabs.size() ? tabs.get(current) : null;
     }
 
     /** Adds a tab. Its page is loaded the first time the tab is shown. */
-    private WebView addTab(String url, boolean showNow) {
-        WebView w = makeWebView();
-        w.setTag(url == null || !url.matches("(?i)^https?://.*") ? BLANK : url);
+    private TabView addTab(String url, boolean showNow) {
+        TabView w = makeWebView();
+        w.pending = url == null || !url.matches("(?i)^https?://.*") ? BLANK : url;
         tabs.add(w);
         if (showNow) show(tabs.size() - 1);
         else tabsButton.setText(String.valueOf(tabs.size()));
@@ -490,18 +519,21 @@ public class BrowserActivity extends Activity {
 
     private void show(int index) {
         if (index < 0 || index >= tabs.size()) return;
+        TabView w = tabs.get(index);
+        // Take a picture of the tab being left, for the tab grid.
+        TabView old = currentTab();
+        if (old != null && old != w && old.getParent() == webHost) old.capture(Ui.dp(this, 200));
         current = index;
-        WebView w = tabs.get(index);
         for (WebView other : tabs) {
             if (other != w) other.onPause();
         }
         webHost.removeAllViews();
         webHost.addView(w, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
         w.onResume();
-        Object pending = w.getTag();
-        if (pending != null) {
-            w.setTag(null);
-            load(w, (String) pending);
+        if (w.pending != null) {
+            String url = w.pending;
+            w.pending = null;
+            load(w, url);
         }
         showProgress(w.getProgress());
         syncBar();
@@ -516,18 +548,27 @@ public class BrowserActivity extends Activity {
         if (tabs.isEmpty()) {
             current = -1;
             addTab(null, true);
-            return;
+        } else {
+            int next = index < current ? current - 1 : current;
+            show(Math.min(next, tabs.size() - 1));
         }
-        int next = index < current ? current - 1 : current;
-        show(Math.min(next, tabs.size() - 1));
+        if (tray != null) renderTray();
     }
 
     private ArrayList<String> tabUrls() {
         ArrayList<String> out = new ArrayList<>();
-        for (WebView w : tabs) {
-            Object pending = w.getTag();
-            String url = pending != null ? (String) pending : w.getUrl();
+        for (TabView w : tabs) {
+            String url = w.address();
             out.add(url != null && url.matches("(?i)^https?://.*") ? url : BLANK);
+        }
+        return out;
+    }
+
+    private ArrayList<String> tabTitles() {
+        ArrayList<String> out = new ArrayList<>();
+        for (TabView w : tabs) {
+            String url = w.address();
+            out.add(url != null && url.matches("(?i)^https?://.*") ? w.label() : "");
         }
         return out;
     }
@@ -537,32 +578,246 @@ public class BrowserActivity extends Activity {
         try {
             JSONObject o = new JSONObject();
             o.put("tabs", new JSONArray(tabUrls()));
+            o.put("titles", new JSONArray(tabTitles()));
             o.put("current", current);
             Store.writeAtomic(Store.sessionFile(this, cp.id), o.toString());
         } catch (Exception ignored) {
         }
     }
 
-    private void showTabs() {
-        String[] names = new String[tabs.size()];
-        for (int i = 0; i < names.length; i++) {
-            WebView w = tabs.get(i);
-            Object pending = w.getTag();
-            String title = pending != null ? Ui.host((String) pending) : w.getTitle();
-            names[i] = title == null || title.isEmpty() || title.startsWith("about:") ? "New tab" : title;
+    // ------------------------------------------------------------------- tab grid
+
+    /** Opens the tab grid: a searchable grid of cards, one per tab, each with a picture of its page. */
+    private void showTray() {
+        if (tray != null || closing || customView != null) return;
+        hideKeyboard();
+        TabView now = currentTab();
+        if (now != null) now.capture(Ui.dp(this, 200));
+        trayQuery = "";
+
+        tray = new FrameLayout(this);
+        tray.setBackgroundColor(Ui.BG);
+
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        tray.addView(column, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+
+        // Top bar: which compartment these tabs belong to, the tab count, and a way back.
+        FrameLayout top = new FrameLayout(this);
+        top.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 8));
+
+        TextView name = Ui.text(this, cp.name, 12.5f, Ui.INK, true);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        name.setMaxWidth(Ui.dp(this, 112));
+        name.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 10), Ui.dp(this, 7));
+        name.setBackground(Ui.round(cp.argb(), Ui.dp(this, 14)));
+        top.addView(name, new FrameLayout.LayoutParams(Ui.WRAP, Ui.WRAP, Gravity.START | Gravity.CENTER_VERTICAL));
+
+        LinearLayout pill = new LinearLayout(this);
+        pill.setBackground(Ui.pressable(Ui.round(Ui.CARD, Ui.dp(this, 16))));
+        pill.setPadding(Ui.dp(this, 12), Ui.dp(this, 9), Ui.dp(this, 12), Ui.dp(this, 9));
+        trayCount = Ui.text(this, "", 13, Ui.TEXT, true);
+        trayCount.setGravity(Gravity.CENTER);
+        trayCount.setBackground(Ui.outline(this, 0, Ui.TEXT, Ui.dp(this, 7)));
+        pill.addView(trayCount, new LinearLayout.LayoutParams(Ui.dp(this, 30), Ui.dp(this, 30)));
+        pill.setContentDescription("Back to the page");
+        pill.setOnClickListener(v -> hideTray());
+        top.addView(pill, new FrameLayout.LayoutParams(Ui.WRAP, Ui.WRAP, Gravity.CENTER));
+
+        TextView done = Ui.text(this, "Done", 15, Ui.ACCENT, true);
+        done.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
+        done.setOnClickListener(v -> hideTray());
+        top.addView(done, new FrameLayout.LayoutParams(Ui.WRAP, Ui.WRAP, Gravity.END | Gravity.CENTER_VERTICAL));
+        column.addView(top, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("Search your tabs");
+        search.setTextSize(16);
+        search.setTextColor(Ui.TEXT);
+        search.setHintTextColor(Ui.MUTED);
+        search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        search.setImeOptions(EditorInfo.IME_ACTION_SEARCH | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+        search.setBackground(Ui.round(Ui.CARD, Ui.dp(this, 24)));
+        search.setPadding(Ui.dp(this, 20), 0, Ui.dp(this, 20), 0);
+        search.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                trayQuery = s.toString();
+                renderTray();
+            }
+        });
+        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 48));
+        searchLp.setMargins(Ui.dp(this, 13), Ui.dp(this, 2), Ui.dp(this, 13), Ui.dp(this, 8));
+        column.addView(search, searchLp);
+
+        ScrollView scroll = new ScrollView(this);
+        trayGrid = new LinearLayout(this);
+        trayGrid.setOrientation(LinearLayout.VERTICAL);
+        // The bottom padding keeps the last row clear of the New tab button.
+        trayGrid.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 88));
+        scroll.addView(trayGrid);
+        column.addView(scroll, new LinearLayout.LayoutParams(Ui.MATCH, 0, 1f));
+
+        TextView add = Ui.button(this, "+  New tab", cp.argb(), Ui.INK);
+        add.setPadding(Ui.dp(this, 22), 0, Ui.dp(this, 22), 0);
+        add.setElevation(Ui.dp(this, 6));
+        add.setOnClickListener(v -> {
+            hideTray();
+            addTab(null, true);
+            focusUrlBar();
+        });
+        FrameLayout.LayoutParams addLp = new FrameLayout.LayoutParams(Ui.WRAP, Ui.dp(this, 52),
+                Gravity.BOTTOM | Gravity.END);
+        addLp.setMargins(0, 0, Ui.dp(this, 16), Ui.dp(this, 16));
+        tray.addView(add, addLp);
+
+        // Lay the cards out again if the width changes (rotation, split screen).
+        tray.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
+            if (r - l != trayWidth) v.post(this::renderTray);
+        });
+
+        content.setVisibility(View.GONE);
+        frame.addView(tray, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        renderTray();
+    }
+
+    private void hideTray() {
+        if (tray == null) return;
+        hideKeyboard();
+        frame.removeView(tray);
+        tray = null;
+        trayGrid = null;
+        trayCount = null;
+        content.setVisibility(View.VISIBLE);
+        syncBar();
+        WebView w = currentTab();
+        if (w != null) w.requestFocus();
+    }
+
+    /** Fills the grid with a card for every tab that matches the search box. */
+    private void renderTray() {
+        if (tray == null) return;
+        int width = tray.getWidth();
+        if (width <= 0) width = frame.getWidth() - frame.getPaddingLeft() - frame.getPaddingRight();
+        trayWidth = width;
+        trayCount.setText(String.valueOf(tabs.size()));
+        trayGrid.removeAllViews();
+        if (width <= 0) return;
+
+        int margin = Ui.dp(this, 5);
+        int columns = Math.max(2, width / Ui.dp(this, 190));
+        int cardWidth = (width - 2 * Ui.dp(this, 8)) / columns - 2 * margin;
+        int thumbHeight = Math.max(1, Math.round((cardWidth - 2 * Ui.dp(this, 6)) * TabView.THUMB_RATIO));
+
+        LinearLayout row = null;
+        int inRow = 0;
+        boolean any = false;
+        for (TabView t : tabs) {
+            if (!Ui.matches(trayQuery, t.label(), t.address())) continue;
+            if (row == null || inRow == columns) {
+                row = new LinearLayout(this);
+                trayGrid.addView(row, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+                inRow = 0;
+            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.WRAP, 1f);
+            lp.setMargins(margin, margin, margin, margin);
+            row.addView(tabCard(t, thumbHeight), lp);
+            inRow++;
+            any = true;
         }
-        new AlertDialog.Builder(this)
-                .setTitle("Tabs in " + cp.name)
-                .setSingleChoiceItems(names, current, (dialog, which) -> {
-                    dialog.dismiss();
-                    show(which);
-                })
-                .setPositiveButton("New tab", (dialog, which) -> {
-                    addTab(null, true);
-                    focusUrlBar();
-                })
-                .setNegativeButton("Close this tab", (dialog, which) -> closeTab(current))
-                .show();
+        // Pad a short last row so its cards keep the same width as the others.
+        while (row != null && inRow < columns) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
+            lp.setMargins(margin, margin, margin, margin);
+            row.addView(new View(this), lp);
+            inRow++;
+        }
+        if (!any) {
+            TextView none = Ui.text(this, "No tabs match your search.", 15, Ui.MUTED, false);
+            none.setPadding(Ui.dp(this, 10), Ui.dp(this, 24), Ui.dp(this, 10), 0);
+            trayGrid.addView(none);
+        }
+    }
+
+    /** One card: site icon, title and close button above a picture of the page. */
+    private View tabCard(final TabView t, int thumbHeight) {
+        final String label = t.label();
+        int pad = Ui.dp(this, 6);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable shape = Ui.round(Ui.CARD, Ui.dp(this, 18));
+        if (t == currentTab()) shape.setStroke(Ui.dp(this, 3), 0xFFFFFFFF); // the tab you are on
+        card.setBackground(Ui.pressable(shape));
+        card.setPadding(pad, Ui.dp(this, 2), pad, pad);
+        card.setOnClickListener(v -> {
+            hideTray();
+            show(tabs.indexOf(t));
+        });
+
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(Ui.dp(this, 6), 0, 0, 0);
+        if (t.icon != null) {
+            ImageView icon = new ImageView(this);
+            icon.setImageBitmap(t.icon);
+            head.addView(icon, new LinearLayout.LayoutParams(Ui.dp(this, 20), Ui.dp(this, 20)));
+        } else {
+            // No site icon yet: the first letter of the title stands in for it.
+            TextView letter = Ui.text(this, label.isEmpty() ? "?" : label.substring(0, 1).toUpperCase(Locale.ROOT),
+                    11, Ui.INK, true);
+            letter.setGravity(Gravity.CENTER);
+            letter.setBackground(Ui.round(Ui.MUTED, Ui.dp(this, 10)));
+            head.addView(letter, new LinearLayout.LayoutParams(Ui.dp(this, 20), Ui.dp(this, 20)));
+        }
+        TextView title = Ui.text(this, label, 14.5f, Ui.TEXT, true);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setPadding(Ui.dp(this, 9), 0, 0, 0);
+        head.addView(title, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+
+        ImageButton close = new ImageButton(this);
+        close.setImageResource(R.drawable.ic_close);
+        close.setBackground(null);
+        close.setColorFilter(Ui.TEXT);
+        close.setContentDescription("Close " + label);
+        close.setOnClickListener(v -> {
+            boolean last = tabs.size() == 1;
+            closeTab(tabs.indexOf(t));
+            if (last) hideTray();
+        });
+        head.addView(close, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 42)));
+        card.addView(head, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+
+        if (t.thumb != null) {
+            ImageView shot = new ImageView(this);
+            shot.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            shot.setImageBitmap(t.thumb);
+            shot.setBackground(Ui.round(0xFFFFFFFF, Ui.dp(this, 12)));
+            shot.setClipToOutline(true);
+            card.addView(shot, new LinearLayout.LayoutParams(Ui.MATCH, thumbHeight));
+        } else {
+            // A tab restored from last time has no picture until it is opened.
+            String address = t.address();
+            boolean blank = address == null || address.startsWith("about:");
+            TextView empty = Ui.text(this, blank ? "New tab" : Ui.host(address), 13, Ui.MUTED, false);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(pad, pad, pad, pad);
+            empty.setBackground(Ui.round(Ui.SURFACE, Ui.dp(this, 12)));
+            card.addView(empty, new LinearLayout.LayoutParams(Ui.MATCH, thumbHeight));
+        }
+        return card;
     }
 
     // ----------------------------------------------------------------- navigation
@@ -790,8 +1045,8 @@ public class BrowserActivity extends Activity {
 
     // -------------------------------------------------------------------- WebView
 
-    private WebView makeWebView() {
-        final WebView w = new WebView(this);
+    private TabView makeWebView() {
+        final TabView w = new TabView(this);
         WebSettings s = w.getSettings();
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -885,6 +1140,7 @@ public class BrowserActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            if (view instanceof TabView) ((TabView) view).icon = favicon; // the old page's icon no longer applies
             if (view == currentTab()) {
                 showProgress(5);
                 syncBar();
@@ -940,19 +1196,19 @@ public class BrowserActivity extends Activity {
             // The sandboxed renderer died. Replace the dead WebView instead of crashing.
             int index = tabs.indexOf(view);
             if (index < 0 || closing) return true;
-            Object pending = view.getTag();
-            String url = pending != null ? (String) pending : view.getUrl();
+            String url = tabs.get(index).address();
             webHost.removeView(view);
             tabs.remove(index);
             view.destroy();
-            WebView fresh = makeWebView();
+            TabView fresh = makeWebView();
             // The visible tab restarts blank so a page that crashes on load can't loop.
-            fresh.setTag(index == current || url == null ? BLANK : url);
+            fresh.pending = index == current || url == null ? BLANK : url;
             tabs.add(index, fresh);
             if (index == current) {
                 show(index);
                 Ui.toast(BrowserActivity.this, "The page crashed, so this tab was reset");
             }
+            if (tray != null) renderTray();
             return true;
         }
     }
@@ -966,12 +1222,18 @@ public class BrowserActivity extends Activity {
         @Override
         public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
             if (!isUserGesture || closing) return false;
-            WebView fresh = makeWebView();
+            hideTray();
+            TabView fresh = makeWebView();
             tabs.add(fresh);
             show(tabs.size() - 1);
             ((WebView.WebViewTransport) resultMsg.obj).setWebView(fresh);
             resultMsg.sendToTarget();
             return true;
+        }
+
+        @Override
+        public void onReceivedIcon(WebView view, Bitmap icon) {
+            if (view instanceof TabView) ((TabView) view).icon = icon;
         }
 
         @Override
@@ -998,6 +1260,7 @@ public class BrowserActivity extends Activity {
                 callback.onCustomViewHidden();
                 return;
             }
+            hideTray();
             // Fullscreen video stays inside the colored frame.
             customView = view;
             customCallback = callback;
